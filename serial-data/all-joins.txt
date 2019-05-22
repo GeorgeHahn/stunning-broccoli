@@ -44,6 +44,10 @@ Actually join a multi
     <- 1C FF 02 6D 
     <- 0E <35> 00 00 01 6A DD 39 1D B9 | <03> 1C 01 04 0C 
             message ID                 | message length?
+        35: message w/ header & length
+        20: message w/o no length, no header, big payload (some tail?)
+    Responses:
+        <message ID> FF 02: ACK
     <- 03 1D 01 72 20 55 44 33 55 07 C5 FF 77 75 EB DB FD 6D FD FB AB BD 6F 75 5D FF A7 DB EB 7B 3B 9F FD BF 
     -> 35 FF 02 86 
     -> 1D FF 02 6E 2D 
