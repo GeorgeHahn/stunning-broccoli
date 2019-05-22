@@ -1,0 +1,5 @@
+AA 55 -> Host to device
+55 AA <- Device to Host
+    These messages are batched - multiple lines in one HID report
+
+53: protocol version

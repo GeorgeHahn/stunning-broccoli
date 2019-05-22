@@ -1,0 +1,18 @@
+\d+\.\d+,USB LS and FS,
+\d+\.\d+,USB LS and FS,(EOP|SYNC|PID SETUP|CRC OK 0x\d{2})
+\d+\.\d+,USB LS and FS,(EOP|SYNC|PID SETUP|CRC OK 0x\d{2}|PID NAK|PID SOF|PID IN)
+\d+\.\d+,USB LS and FS,(EOP|SYNC|PID SETUP|CRC OK 0x\d{2}|PID NAK|PID SOF|PID IN|PID DATA1|CRC OK 0x.{4}|[Bb]yte (0x[0-9A-F]{2}))
+
+
+
+\d+.\d+,.+?0x(..)\n
+$1 
+
+(55 AA|AA 55)
+\n$1
+
+AA 55 53
+->
+
+55 AA 53
+<-

@@ -1,0 +1,5 @@
+Time [s], Analyzer Name, Decoded Protocol Result
+<- 19 35 00 00 01 6A DD 67 47 FA 0E A2 37 37 37 41 43 32 36 30 02 01 00 05 07 09 
+<- 1D 19 00 00 01 6A DD 67 47 FD A2 37 37 37 41 43 32 36 30 02 11 67 00 01 01 00 05 2B 07 8A 
+-> 35 FF 02 86 
+-> 19 FF 02 6A 
