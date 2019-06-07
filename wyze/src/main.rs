@@ -58,7 +58,7 @@ fn main() {
     hub.reset().unwrap();
 
     trace!("Set active config");
-    hub.set_active_configuration(0x00).unwrap();
+    hub.set_active_configuration(0x01).unwrap();
 
     trace!("Claim interface");
     hub.claim_interface(0x0000).unwrap();
@@ -79,7 +79,7 @@ fn main() {
 
     trace!("Read a message");
     let len = hub
-        .read_bulk(0x82, &mut raw_data, std::time::Duration::new(1, 0))
+        .read_interrupt(0x82, &mut raw_data, std::time::Duration::new(1, 0))
         .unwrap();
 
     trace!("Read {:?}, data: {:X?}", len, &raw_data[..len]);
