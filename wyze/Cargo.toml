@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 libusb = "0.3"
-log = "0.4.0"
-simple_logger = "1.2.0"
+log = "0.4"
+simple_logger = "1.2"
 
 [replace]
 "libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }
