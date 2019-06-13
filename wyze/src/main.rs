@@ -2,7 +2,7 @@ extern crate libusb;
 extern crate log;
 extern crate simple_logger;
 
-use log::{trace};
+use log::{error, trace};
 
 const HUB_VENDOR_ID: u16 = 0x1A86;
 const HUB_PRODUCT_ID: u16 = 0xE024;
@@ -43,63 +43,229 @@ impl<'a> WyzeHub<'a> {
     pub fn open(self) -> OpenWyzeHub<'a> {
         trace!("Open hub");
         let handle = self.device.open().unwrap();
-        OpenWyzeHub { _device: self.device, handle: handle, buf: [0; 1024] }
+        OpenWyzeHub {
+            _device: self.device,
+            handle: handle,
+            buf: [0; 64],
+        }
     }
 }
 
 pub struct OpenWyzeHub<'a> {
     _device: libusb::Device<'a>,
     handle: libusb::DeviceHandle<'a>,
-    buf: [u8; 1024],
+    buf: [u8; 64],
+}
+
+#[derive(Debug)]
+pub enum PacketType {
+    Sync,
+    Async,
+}
+
+#[derive(Debug)]
+pub struct Command {
+    pub pt: PacketType,
+    pub value: u8,
+    pub payload: Option<Vec<u8>>,
+}
+
+impl Command {
+    pub fn get_enr() -> Command {
+        error!("get_enr() payload unimplemented");
+        Command {
+            pt: PacketType::Sync,
+            value: 0x02,
+            payload: None,
+        }
+    }
+
+    pub fn get_mac() -> Command {
+        Command {
+            pt: PacketType::Sync,
+            value: 0x04,
+            payload: None,
+        }
+    }
+
+    pub fn get_key() -> Command {
+        Command {
+            pt: PacketType::Sync,
+            value: 0x06,
+            payload: None,
+        }
+    }
+
+    pub fn inquiry() -> Command {
+        Command {
+            pt: PacketType::Sync,
+            value: 0x27,
+            payload: None,
+        }
+    }
+
+    pub fn auth_blinking() -> Command {
+        Command {
+            pt: PacketType::Async,
+            value: 0x14,
+            payload: Some(vec![0x00]), // any value 0x00-0xFE
+        }
+    }
+
+    pub fn auth_done() -> Command {
+        Command {
+            pt: PacketType::Async,
+            value: 0x14,
+            payload: Some(vec![0xFF]),
+        }
+    }
+
+    pub fn get_ver() -> Command {
+        Command {
+            pt: PacketType::Async,
+            value: 0x16,
+            payload: None,
+        }
+    }
+
+    pub fn get_sensor_count() -> Command {
+        Command {
+            pt: PacketType::Async,
+            value: 0x2E,
+            payload: None,
+        }
+    }
+
+    pub fn start_stop_network(joinmode: bool) -> Command {
+        Command {
+            pt: PacketType::Async,
+            value: 0x1C,
+            payload: Some(vec![if joinmode { 0x01 } else { 0x00 }]),
+        }
+    }
+
+    pub fn set_random() -> Command {
+        error!("set_random() payload unimplemented");
+        Command {
+            pt: PacketType::Async,
+            value: 0x21,
+            payload: None,
+        }
+    }
+
+    pub fn get_sensor_list(count: u8) -> Command {
+        Command {
+            pt: PacketType::Async,
+            value: 0x30,
+            payload: Some(vec![count]),
+        }
+    }
 }
 
 impl<'a> OpenWyzeHub<'a> {
     pub fn init(&mut self) {
-        trace!("Reset bridge");
+        trace!("Reset");
         self.handle.reset().unwrap();
-
-        trace!("Set active config");
-        self.handle.set_active_configuration(0x01).unwrap();
 
         trace!("Claim interface");
         self.handle.claim_interface(0x0000).unwrap();
 
-        let msg1 = [0xAA, 0x55, 0x43, 0x03, 0x27, 0x01, 0x6C];
-        self.raw_write(&msg1);
+        trace!("USB HID setup complete");
 
-        let data = self.raw_read();
-        trace!("Read {:?}, data: {:X?}", data.len(), &data);
+        self.send(Command::inquiry());
 
-        let msg2 = [0xAA, 0x55, 0x43, 0x13, 0x02, 0x74, 0x34, 0x6C, 0x67, 0x4C, 0x53, 0x70, 0x33, 0x73, 0x33, 0x39, 0x39, 0x79, 0x4E, 0x75, 0x4A, 0x06, 0xB2, 0x17];
-        self.raw_write(&msg2);
+        // self.send_get_enr();
 
-        let data = self.raw_read();
-        trace!("Read {:?}, data: {:X?}", data.len(), &data);
+        self.send(Command::get_mac());
+
+        // self.send_get_key();
+
+        self.send(Command::get_ver());
+
+        self.send(Command::get_sensor_count());
+
+        self.send(Command::get_sensor_list(5));
+        let _ = self.raw_read();
+        let _ = self.raw_read();
+        let _ = self.raw_read();
+        let _ = self.raw_read();
+        let _ = self.raw_read();
+
+        self.send(Command::auth_done());
+
+        trace!("Hub setup complete");
     }
 
-    fn raw_write(&self, data: &[u8]) {
-        trace!("Write data");
-        self.handle.write_control(
-            0x21,
-            0x09,
-            0x02AA,
-            0x0000,
-            &data,
-            std::time::Duration::new(1, 0),
-        )
-        .unwrap();
+    fn send(&mut self, cmd: Command) {
+        if let Some(p) = cmd.payload {
+            self.write_packet(cmd.pt, cmd.value, p);
+        } else {
+            self.write_packet(cmd.pt, cmd.value, vec![]);
+        }
+        let _ = self.raw_read();
+        // TODO: Validate and return response (sync) / ack (async)?
     }
 
-    fn raw_read(&mut self) -> &[u8] {
-        trace!("Read data");
-        let len = self.handle
-            .read_interrupt(0x82, &mut self.buf, std::time::Duration::new(1, 0))
+    fn write_packet(&self, pt: PacketType, cmd: u8, data: Vec<u8>) {
+        trace!("Sending {:?} packet 0x{:x}", pt, cmd);
+        let mut packet: Vec<u8> = Vec::new();
+
+        // Direction
+        packet.extend(&[0xAA, 0x55]);
+
+        // Type
+        match pt {
+            PacketType::Sync => packet.push(0x43),
+            PacketType::Async => packet.push(0x53),
+        }
+
+        // Length
+        packet.push(data.len() as u8 + 3);
+
+        // command
+        packet.push(cmd);
+
+        // payload
+        packet.extend(data);
+
+        // checksum
+        let ck: u16 = packet.iter().fold(0u16, |acc, x| acc + (*x as u16));
+        let ck_bytes: &[u8] = &[(ck >> 8 & 0xFF) as u8, (ck & 0xFF) as u8];
+        packet.extend(ck_bytes);
+
+        self.raw_write(packet);
+    }
+
+    fn raw_write(&self, data: Vec<u8>) {
+        trace!("Sending data {:x?}", &data);
+
+        self.handle
+            .write_control(
+                0x21,   // LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE | LIBUSB_ENDPOINT_OUT
+                0x09,   // HID SET_REPORT
+                0x02AA, // Report number 0xAA
+                0x0000,
+                &data,
+                std::time::Duration::new(1, 0),
+            )
             .unwrap();
+    }
 
-        return &self.buf[..len];
+    fn raw_read(&mut self) -> Result<&[u8], ()> {
+        let rsp = self
+            .handle
+            .read_interrupt(0x82, &mut self.buf, std::time::Duration::new(1, 0));
+
+        return match rsp {
+            Ok(len) => {
+                let rsp = &self.buf[..len];
+                trace!("Read {:?}: {:X?}", rsp.len(), &rsp);
+                Ok(rsp)
+            }
+            Err(_) => Err(()),
+        };
     }
 }
-
 
 fn main() {
     simple_logger::init().unwrap();

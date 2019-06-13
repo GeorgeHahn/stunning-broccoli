@@ -1,7 +1,8 @@
 [package]
 name = "wyze"
 version = "0.1.0"
-authors = ["Broderick Carlin <broderick.carlin@gmail.com>"]
+authors = ["Broderick Carlin <broderick.carlin@gmail.com>",
+           "George Hahn <george.hahn.vhs@gmail.com>"]
 edition = "2018"
 
 [dependencies]
