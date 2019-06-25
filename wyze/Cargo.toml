@@ -9,6 +9,8 @@ edition = "2018"
 libusb = "0.3"
 log = "0.4"
 simple_logger = "1.2"
+nom = "4.2.3"
+bytes = "0.4"
 
 [replace]
 "libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }
