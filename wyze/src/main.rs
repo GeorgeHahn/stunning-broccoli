@@ -87,6 +87,7 @@ impl<T> ReceivedPacket<T>
     }
 }
 
+// Don't trust this
 pub enum PacketType {
     GetEnr,
     Auth,
@@ -107,6 +108,14 @@ pub trait Packet {
     fn get_packet_type(&self) -> PacketSyncType;
     
     fn get_packet_id(&self) -> u8;
+
+    fn is_command(&self) -> bool {
+        self.get_packet_id() % 2
+    }
+    
+    fn is_response(&self) -> bool {
+        !self.is_command()
+    }
 }
 
 pub trait Parseable {
@@ -213,6 +222,20 @@ impl Packet for InquiryPacket {
 
     fn get_packet_id(&self) -> u8 {
         0x27
+    }
+}
+
+#[derive(Debug)]
+pub struct InquiryResponsePacket {
+    unknown: u8,
+}
+impl Packet for InquiryResponsePacket {
+    fn get_packet_type(&self) -> PacketSyncType {
+        PacketSyncType::Sync
+    }
+
+    fn get_packet_id(&self) -> u8 {
+        0x28
     }
 }
 
