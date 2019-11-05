@@ -1,0 +1,16 @@
+[package]
+name = "wyze"
+version = "0.1.0"
+authors = ["Broderick Carlin <broderick.carlin@gmail.com>",
+           "George Hahn <george.hahn.vhs@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+libusb = "0.3"
+log = "0.4"
+simple_logger = "1.2"
+nom = "4.2.3"
+bytes = "0.4"
+
+[replace]
+"libusb-sys:0.2.3"= { git = "https://github.com/cmsd2/libusb-sys/" }

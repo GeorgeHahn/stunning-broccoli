@@ -1,0 +1,11 @@
+[package]
+name = "wyze-parser"
+version = "0.1.0"
+authors = ["Broderick Carlin <broderick.carlin@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+nom = "5.0"
+num = "0.2"
+num-traits = "0.2"
+num-derive = "0.2"
