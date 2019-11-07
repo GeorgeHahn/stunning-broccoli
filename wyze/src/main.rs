@@ -6,6 +6,7 @@ extern crate simple_logger;
 use std::fmt::Debug;
 
 use log::{info, trace};
+use std::sync::Arc;
 use std::time::Duration;
 
 mod magic;
@@ -56,14 +57,15 @@ impl<'a> WyzeHub<'a> {
             //device: self.device,
             handle: handle,
             buf: [0; 64],
+            rsv_bytes: vec![],
         }
     }
 }
 
 pub struct OpenWyzeHub<'a> {
-    //device: rusb::Device<'a>,
     handle: rusb::DeviceHandle<'a>,
     buf: [u8; 64],
+    rsv_bytes: Vec<u8>,
 }
 
 impl<'a> OpenWyzeHub<'a> {
@@ -88,20 +90,27 @@ impl<'a> OpenWyzeHub<'a> {
 
         self.send(InquiryPacket);
         let _ = self.raw_read(context);
+        self.service_bytes();
 
         self.send(GetMacPacket);
         let _ = self.raw_read(context);
+        self.service_bytes();
 
         self.send(GetVerPacket);
         let _ = self.raw_read(context);
+        self.service_bytes();
 
         self.send(GetSensorCountPacket);
         let _ = self.raw_read(context);
+        self.service_bytes();
 
         self.send(GetSensorListPacket::create(5));
         let _ = self.raw_read(context);
+        self.service_bytes();
         let _ = self.raw_read(context);
+        self.service_bytes();
         let _ = self.raw_read(context);
+        self.service_bytes();
 
         self.send(AuthPacket::create_done());
 
@@ -109,6 +118,7 @@ impl<'a> OpenWyzeHub<'a> {
 
         loop {
             let _ = self.raw_read(context);
+            self.service_bytes();
         }
     }
 
@@ -146,7 +156,6 @@ impl<'a> OpenWyzeHub<'a> {
     }
 
     fn raw_write(&self, data: Vec<u8>) {
-        //trace!("Sending data {:02X?}", &data);
         self.handle
             .write_control(
                 0x21,   // rusb_REQUEST_TYPE_CLASS | rusb_RECIPIENT_INTERFACE | rusb_ENDPOINT_OUT
@@ -175,16 +184,22 @@ impl<'a> OpenWyzeHub<'a> {
         loop {
             if let Some(mut transfer) = async_group.any().unwrap() {
                 if transfer.status() == rusb::TransferStatus::Success {
-                    let bytes = transfer.actual();
-                    info!("read {:?} bytes", bytes.len());
-                    let (remaining, msg) = magic::parse(&bytes).unwrap();
-                    info!("1: {:?}", msg);
-                    if let Ok((_remaining, msg)) = magic::parse(&remaining) {
-                        info!("2: {:?}", msg);
-                    }
+                    self.rsv_bytes.extend_from_slice(transfer.actual());
                     return Ok(());
                 }
                 async_group.submit(transfer).unwrap();
+            }
+        }
+    }
+
+    fn service_bytes(&mut self) {
+        while !self.rsv_bytes.is_empty() {
+            if let Ok((remaining, msg)) = magic::parse(&self.rsv_bytes) {
+                let removed = self.rsv_bytes.len() - remaining.len();
+                self.rsv_bytes = self.rsv_bytes[removed..].to_vec();
+                info!("{:?}", msg);
+            } else {
+                self.rsv_bytes.clear();
             }
         }
     }
