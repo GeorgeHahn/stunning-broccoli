@@ -3,10 +3,8 @@ extern crate nom;
 extern crate rusb;
 extern crate simple_logger;
 
-use std::fmt::Debug;
-
 use log::{info, trace};
-use std::sync::Arc;
+use std::fmt::Debug;
 use std::time::Duration;
 
 mod magic;
@@ -17,59 +15,34 @@ use packet::*;
 const HUB_VENDOR_ID: u16 = 0x1A86;
 const HUB_PRODUCT_ID: u16 = 0xE024;
 
-pub struct WyzeHub<'a> {
-    device: rusb::Device<'a>,
-}
-
-impl<'a> WyzeHub<'a> {
-    pub fn get_hubs(context: &'a rusb::Context) -> Vec<WyzeHub<'a>> {
-        match context.devices() {
-            Ok(devices) => {
-                let mut hubs = vec![];
-                for device in devices.iter() {
-                    match WyzeHub::new(device) {
-                        Ok(hub) => hubs.push(hub),
-                        Err(_) => (),
+pub fn get_hubs(context: &rusb::Context) -> Vec<rusb::Device> {
+    match context.devices() {
+        Ok(devices) => {
+            let mut hubs = vec![];
+            for device in devices.iter() {
+                if let Ok(device_desc) = device.device_descriptor() {
+                    if device_desc.vendor_id() == HUB_VENDOR_ID
+                        && device_desc.product_id() == HUB_PRODUCT_ID
+                    {
+                        hubs.push(device);
                     }
                 }
-                return hubs;
             }
-            Err(_) => return vec![],
+            return hubs;
         }
-    }
-
-    // The constructor will only build a WyzeHub instance if the USB handle
-    // corresponds to a valid Wyze Hub
-    pub fn new(device: rusb::Device) -> Result<WyzeHub, ()> {
-        let device_desc = device.device_descriptor().map_err(|_| ())?;
-
-        if device_desc.vendor_id() == HUB_VENDOR_ID && device_desc.product_id() == HUB_PRODUCT_ID {
-            return Ok(WyzeHub { device });
-        } else {
-            return Err(());
-        }
-    }
-
-    pub fn open(self) -> OpenWyzeHub<'a> {
-        trace!("Open hub");
-        let handle = self.device.open().unwrap();
-        OpenWyzeHub {
-            //device: self.device,
-            handle: handle,
-            buf: [0; 64],
-            rsv_bytes: vec![],
-        }
+        Err(_) => return vec![],
     }
 }
 
-pub struct OpenWyzeHub<'a> {
+pub struct WyzeHub<'a> {
     handle: rusb::DeviceHandle<'a>,
     buf: [u8; 64],
     rsv_bytes: Vec<u8>,
+    context: &'a rusb::Context,
 }
 
-impl<'a> OpenWyzeHub<'a> {
-    pub fn init(&mut self, context: &'a rusb::Context) {
+impl<'a> WyzeHub<'a> {
+    pub fn init(&mut self) {
         info!("Reset");
         self.handle.reset().unwrap();
 
@@ -89,27 +62,27 @@ impl<'a> OpenWyzeHub<'a> {
         info!("USB HID setup complete");
 
         self.send(InquiryPacket);
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
 
         self.send(GetMacPacket);
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
 
         self.send(GetVerPacket);
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
 
         self.send(GetSensorCountPacket);
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
 
         self.send(GetSensorListPacket::create(5));
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
-        let _ = self.raw_read(context);
+        let _ = self.raw_read();
         self.service_bytes();
 
         self.send(AuthPacket::create_done());
@@ -117,7 +90,7 @@ impl<'a> OpenWyzeHub<'a> {
         info!("Hub setup complete");
 
         loop {
-            let _ = self.raw_read(context);
+            let _ = self.raw_read();
             self.service_bytes();
         }
     }
@@ -168,8 +141,8 @@ impl<'a> OpenWyzeHub<'a> {
             .unwrap();
     }
 
-    fn raw_read(&mut self, context: &'a rusb::Context) -> Result<(), ()> {
-        let mut async_group = rusb::AsyncGroup::new(context);
+    fn raw_read(&mut self) -> Result<(), ()> {
+        let mut async_group = rusb::AsyncGroup::new(&self.context);
         let timeout = Duration::from_secs(1);
 
         async_group
@@ -209,13 +182,23 @@ fn main() {
     simple_logger::init().unwrap();
 
     let context = rusb::Context::new().unwrap();
-    let mut hubs = WyzeHub::get_hubs(&context);
-    println!("Found {} bridge(s)", hubs.len());
-    if hubs.len() == 0 {
-        return;
+    {
+        let mut hubs = get_hubs(&context);
+        println!("Found {} bridge(s)", hubs.len());
+        if hubs.len() == 0 {
+            return;
+        }
+        println!("Selecting first bridge");
+        let hub = hubs.remove(0).open().unwrap();
+
+        trace!("Open hub");
+        let mut hub = WyzeHub {
+            handle: hub,
+            buf: [0; 64],
+            rsv_bytes: vec![],
+            context: &context,
+        };
+
+        hub.init();
     }
-    println!("Selecting first bridge");
-    let hub = hubs.remove(0);
-    let mut hub = hub.open();
-    hub.init(&context);
 }
