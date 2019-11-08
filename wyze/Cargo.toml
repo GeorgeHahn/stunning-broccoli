@@ -6,7 +6,7 @@ authors = ["Broderick Carlin <broderick.carlin@gmail.com>",
 edition = "2018"
 
 [dependencies]
-rusb = { git = "ssh://git@github.com/BroderickCarlin/libusb-rs.git", branch = "async-fix"}
+rusb = { path = "../../libusb-rs"}
 log = "0.4"
 simple_logger = "1.2"
 nom = "5.0"

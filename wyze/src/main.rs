@@ -36,8 +36,6 @@ pub fn get_hubs(context: &rusb::Context) -> Vec<rusb::Device> {
 
 pub struct WyzeHub<'a> {
     handle: rusb::DeviceHandle<'a>,
-    buf: [u8; 64],
-    rsv_bytes: Vec<u8>,
     context: &'a rusb::Context,
 }
 
@@ -62,37 +60,27 @@ impl<'a> WyzeHub<'a> {
         info!("USB HID setup complete");
 
         self.send(InquiryPacket);
-        let _ = self.raw_read();
-        self.service_bytes();
+        self.raw_read();
 
         self.send(GetMacPacket);
-        let _ = self.raw_read();
-        self.service_bytes();
+        self.raw_read();
 
         self.send(GetVerPacket);
-        let _ = self.raw_read();
-        self.service_bytes();
+        self.raw_read();
 
         self.send(GetSensorCountPacket);
-        let _ = self.raw_read();
-        self.service_bytes();
+        self.raw_read();
 
         self.send(GetSensorListPacket::create(5));
-        let _ = self.raw_read();
-        self.service_bytes();
-        let _ = self.raw_read();
-        self.service_bytes();
-        let _ = self.raw_read();
-        self.service_bytes();
+        self.raw_read();
+        self.raw_read();
+        self.raw_read();
 
         self.send(AuthPacket::create_done());
 
         info!("Hub setup complete");
 
-        loop {
-            let _ = self.raw_read();
-            self.service_bytes();
-        }
+        self.run();
     }
 
     fn send<P>(&self, packet: P)
@@ -141,38 +129,66 @@ impl<'a> WyzeHub<'a> {
             .unwrap();
     }
 
-    fn raw_read(&mut self) -> Result<(), ()> {
-        let mut async_group = rusb::AsyncGroup::new(&self.context);
+    fn raw_read(&mut self) {
         let timeout = Duration::from_secs(1);
+        let mut rsv_bytes = vec![];
+        let mut async_group = rusb::AsyncGroup::new(&self.context);
 
         async_group
-            .submit(rusb::Transfer::interrupt(
-                &self.handle,
-                0x82,
-                &mut self.buf,
-                timeout,
-            ))
+            .submit(rusb::Transfer::interrupt(&self.handle, 0x82, timeout))
             .unwrap();
 
         loop {
             if let Some(mut transfer) = async_group.any().unwrap() {
                 if transfer.status() == rusb::TransferStatus::Success {
-                    self.rsv_bytes.extend_from_slice(transfer.actual());
-                    return Ok(());
+                    rsv_bytes.extend_from_slice(transfer.actual());
+                    break;
                 }
                 async_group.submit(transfer).unwrap();
             }
         }
+
+        while !rsv_bytes.is_empty() {
+            if let Ok((remaining, msg)) = magic::parse(&rsv_bytes) {
+                let removed = rsv_bytes.len() - remaining.len();
+                rsv_bytes = rsv_bytes[removed..].to_vec();
+                info!("parsed {:?}", msg);
+            } else {
+                rsv_bytes.clear();
+            }
+        }
     }
 
-    fn service_bytes(&mut self) {
-        while !self.rsv_bytes.is_empty() {
-            if let Ok((remaining, msg)) = magic::parse(&self.rsv_bytes) {
-                let removed = self.rsv_bytes.len() - remaining.len();
-                self.rsv_bytes = self.rsv_bytes[removed..].to_vec();
-                info!("{:?}", msg);
-            } else {
-                self.rsv_bytes.clear();
+    fn run(&mut self) {
+        let timeout = Duration::from_secs(1);
+        let mut rsv_bytes = vec![];
+        let mut async_group = rusb::AsyncGroup::new(&self.context);
+        let mut read_active = false;
+        loop {
+            if !read_active {
+                async_group
+                    .submit(rusb::Transfer::interrupt(&self.handle, 0x82, timeout))
+                    .unwrap();
+                read_active = true;
+            }
+
+            if let Some(mut transfer) = async_group.any().unwrap() {
+                if transfer.status() == rusb::TransferStatus::Success {
+                    rsv_bytes.extend_from_slice(transfer.actual());
+                    read_active = false;
+                } else {
+                    async_group.submit(transfer).unwrap();
+                }
+            }
+
+            while !rsv_bytes.is_empty() {
+                if let Ok((remaining, msg)) = magic::parse(&rsv_bytes) {
+                    let removed = rsv_bytes.len() - remaining.len();
+                    rsv_bytes = rsv_bytes[removed..].to_vec();
+                    info!("parsed {:?}", msg);
+                } else {
+                    rsv_bytes.clear();
+                }
             }
         }
     }
@@ -194,8 +210,6 @@ fn main() {
         trace!("Open hub");
         let mut hub = WyzeHub {
             handle: hub,
-            buf: [0; 64],
-            rsv_bytes: vec![],
             context: &context,
         };
 
