@@ -11,8 +11,8 @@ pub enum PacketType {
 #[derive(Debug)]
 pub struct RawMessage {
     cmd_type: PacketType,
-    cmd_id: u8,
-    payload: Vec<u8>,
+    pub cmd_id: u8,
+    pub payload: Vec<u8>,
 }
 
 pub fn parse(msg: &[u8]) -> IResult<&[u8], RawMessage> {

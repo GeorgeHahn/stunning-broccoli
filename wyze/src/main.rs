@@ -188,6 +188,9 @@ impl<'a> WyzeHub<'a> {
                 if let Ok(_) = sock.connect(WYZE_CLIENT) {
                     info!("Connected!");
                     bound = true;
+                    self.send(GetMacPacket);
+                    self.send(GetVerPacket);
+                    self.send(GetSensorCountPacket);
                 }
             }
 
@@ -210,18 +213,21 @@ impl<'a> WyzeHub<'a> {
             while !rsv_bytes.is_empty() {
                 if let Ok((remaining, msg)) = magic::parse(&rsv_bytes) {
                     let removed = rsv_bytes.len() - remaining.len();
-                    let mut i = 0;
 
-                    loop {
-                        if (rsv_bytes[i] == 0xAA && rsv_bytes[i + 1] == 0x55)
-                            || (rsv_bytes[i + 1] == 0xAA && rsv_bytes[i] == 0x55)
-                        {
-                            break;
+                    if msg.cmd_id == 0x31 {
+                        self.send(GetSensorListPacket::create(msg.payload[0]));
+                    } else if bound {
+                        let mut i = 0;
+
+                        loop {
+                            if (rsv_bytes[i] == 0xAA && rsv_bytes[i + 1] == 0x55)
+                                || (rsv_bytes[i + 1] == 0xAA && rsv_bytes[i] == 0x55)
+                            {
+                                break;
+                            }
+                            i += 1;
                         }
-                        i += 1;
-                    }
 
-                    if bound {
                         sock.send(&rsv_bytes[i..removed])
                             .expect("Failed when sending bytes to socket!");
                     }
