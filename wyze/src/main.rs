@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate log;
 extern crate nom;
 extern crate rusb;
@@ -5,6 +6,8 @@ extern crate simple_logger;
 
 use log::{info, trace};
 use std::fmt::Debug;
+
+use std::os::unix::net::UnixDatagram;
 use std::time::Duration;
 
 mod magic;
@@ -14,6 +17,9 @@ use packet::*;
 
 const HUB_VENDOR_ID: u16 = 0x1A86;
 const HUB_PRODUCT_ID: u16 = 0xE024;
+
+const WYZE_SERVER: &str = "/tmp/wyze.socket";
+const WYZE_CLIENT: &str = "/tmp/wyze.client";
 
 pub fn get_hubs(context: &rusb::Context) -> Vec<rusb::Device> {
     match context.devices() {
@@ -44,15 +50,15 @@ impl<'a> WyzeHub<'a> {
         info!("Reset");
         self.handle.reset().unwrap();
 
-        info!("Set active config");
-        self.handle.set_active_configuration(0x00).unwrap();
-
         if let Ok(result) = self.handle.kernel_driver_active(0x00) {
             if result {
                 info!("Kernel driver active! Detaching");
                 self.handle.detach_kernel_driver(0x00).unwrap();
             }
         }
+
+        info!("Set active config");
+        self.handle.set_active_configuration(0x01).unwrap();
 
         info!("Claim interface");
         self.handle.claim_interface(0x00).unwrap();
@@ -164,7 +170,27 @@ impl<'a> WyzeHub<'a> {
         let mut rsv_bytes = vec![];
         let mut async_group = rusb::AsyncGroup::new(&self.context);
         let mut read_active = false;
+        let _ = std::fs::remove_file(WYZE_SERVER);
+        let _ = std::fs::remove_file(WYZE_CLIENT);
+        let sock = UnixDatagram::bind(WYZE_SERVER).expect("failed to bind socket");
+        sock.set_nonblocking(true)
+            .expect("failed to set to nonblocking");
+
+        let mut bound = false;
+
         loop {
+            let mut buf = vec![0; 64];
+            if let Ok(len) = sock.recv(buf.as_mut_slice()) {
+                self.raw_write(buf[..len].to_vec());
+            }
+
+            if !bound {
+                if let Ok(_) = sock.connect(WYZE_CLIENT) {
+                    info!("Connected!");
+                    bound = true;
+                }
+            }
+
             if !read_active {
                 async_group
                     .submit(rusb::Transfer::interrupt(&self.handle, 0x82, timeout))
@@ -184,8 +210,22 @@ impl<'a> WyzeHub<'a> {
             while !rsv_bytes.is_empty() {
                 if let Ok((remaining, msg)) = magic::parse(&rsv_bytes) {
                     let removed = rsv_bytes.len() - remaining.len();
+                    let mut i = 0;
+
+                    loop {
+                        if (rsv_bytes[i] == 0xAA && rsv_bytes[i + 1] == 0x55)
+                            || (rsv_bytes[i + 1] == 0xAA && rsv_bytes[i] == 0x55)
+                        {
+                            break;
+                        }
+                        i += 1;
+                    }
+
+                    if bound {
+                        sock.send(&rsv_bytes[i..removed])
+                            .expect("Failed when sending bytes to socket!");
+                    }
                     rsv_bytes = rsv_bytes[removed..].to_vec();
-                    info!("parsed {:?}", msg);
                 } else {
                     rsv_bytes.clear();
                 }
